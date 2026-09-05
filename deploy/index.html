@@ -2691,9 +2691,7 @@ function drawFA(){
     const key='fag'+gi, FS=SORTS[key]||{col:'rtg',desc:true};
     const fv=(p,c)=>{const v=pstat(p.n);
       return c==='n'?p.n:c==='from'?p.from:c==='last'?(salPrev(p)||0):c==='rtg'?RG[canon(p.n)]
-        :c==='g'?(v?v.g:null)
-        :c==='FGP'?(v?shotPct(v.s.FG,v.s.FGA):null)
-        :c==='FTP'?(v?shotPct(v.s.FT,v.s.FTA):null):(v?v.s[c]:null);};
+        :c==='g'?(v?v.g:null):sortStat(v,c);};
     const list=fa.filter(f).filter(p=>!q||p.n.toLowerCase().includes(q))
       .sort((x,y)=>cmp(fv(x,FS.col),fv(y,FS.col),FS.desc));
     if(!list.length)return '';
@@ -2745,8 +2743,7 @@ function drawQuickPool(){
     return {...v,n:p.n,p:v.p||p.p,rtg:RG[canon(p.n)],from:ownerOf(p.n)};});
   const S0=SORTS.qs||{col:'rtg',desc:true};
   const val=(p,c)=>c==='n'?p.n:c==='from'?p.from:c==='rtg'?p.rtg:c==='g'?p.g
-    :c==='FGP'?(p.s?shotPct(p.s.FG,p.s.FGA):null)
-    :c==='FTP'?(p.s?shotPct(p.s.FT,p.s.FTA):null):(p.s?p.s[c]:null);
+    :sortStat(p,c);
   rows.sort((a,b)=>cmp(val(a,S0.col),val(b,S0.col),S0.desc));
   if($('qsCount')) $('qsCount').textContent=`${rows.length} free agents`;
   const H=(k,l,cls)=>`<th data-k="${k}" class="${cls||''}">${l}</th>`;
@@ -3654,6 +3651,26 @@ function shotCell(m,a,edited){
   return `<td class="shot"><b class="${edited?'edited':''}">${pctText(shotPct(m,a))}</b>`
     +`<small>${madeAtt(m,a)}</small></td>`;
 }
+/* ---- the stat half of every table's sort accessor ----
+   The ONE place `.s` is indexed for sorting, and the reason it exists: a rookie
+   has no box score, so `s` is null, and an unguarded `p.s[c]` inside a
+   comparator does not quietly return undefined — it THROWS. `Array.sort()` then
+   aborts, the draw function never reaches its innerHTML, and the table is left
+   holding the order it already had. That is exactly what "the free agent list
+   will not sort" looked like: every column that touched `.s` was dead, while
+   rating, games, max bid and the two percentages — the four that never read it
+   unguarded — worked fine.
+
+   cmp() puts nulls last in either direction, so a player with no line sorts to
+   the bottom of every stat column rather than disappearing or throwing. */
+function sortStat(row,c){
+  const s=row&&row.s;
+  if(c==='FGP') return shotPct(s&&s.FG,s&&s.FGA);
+  if(c==='FTP') return shotPct(s&&s.FT,s&&s.FTA);
+  if(!s) return null;
+  const v=s[c];
+  return v==null?null:v;
+}
 /* The pair of them, for a row that has a stat object — or blanks when it has
    none, so a rookie's row keeps its column count. */
 function shotCells(st){
@@ -3711,8 +3728,7 @@ function drawFAList(){
     return {...v,n:p.n,p:v.p||p.p,rtg:RG[canon(p.n)],ceil:bidCeiling(me2,p.n)};});
   const S0=SORTS.fa||{col:'rtg',desc:true};
   const val=(p,c)=>c==='n'?p.n:c==='rtg'?p.rtg:c==='ceil'?p.ceil:c==='g'?p.g
-    :c==='FGP'?shotPct(p.s&&p.s.FG,p.s&&p.s.FGA)
-    :c==='FTP'?shotPct(p.s&&p.s.FT,p.s&&p.s.FTA):p.s[c];
+    :sortStat(p,c);
   rows.sort((a,b)=>cmp(val(a,S0.col),val(b,S0.col),S0.desc));
   $('faCount').textContent=`${rows.length} available`;
   if($('faSignNote')) $('faSignNote').textContent = !seasonLive()
@@ -3962,8 +3978,8 @@ function rosterTable(team,into){
   const cand=a&&a.status==='open'?pstat(a.player):null;
   const S0=SORTS.ros||{col:'rtg',desc:true};
   const rv=(x,c)=>{if(!x.r)return null;
-    return c==='n'?x.c.n:c==='sal'?salNow(x.c):c==='rtg'?rtg(x.c.n):c==='g'?x.r.g:
-      c==='FGP'?(x.r.s.FGA?x.r.s.FG/x.r.s.FGA:null):c==='FTP'?(x.r.s.FTA?x.r.s.FT/x.r.s.FTA:null):x.r.s[c];};
+    return c==='n'?x.c.n:c==='sal'?salNow(x.c):c==='rtg'?rtg(x.c.n):c==='g'?x.r.g
+      :sortStat(x.r,c);};
   rows.sort((a,b)=>cmp(rv(a,S0.col),rv(b,S0.col),S0.desc));
   $(into).innerHTML=`<div class="scroller" data-cap="1"><table id="${into}Tbl"><thead><tr>
       <th class="l" data-k="n">Player</th><th class="hide" data-k="sal">Salary</th><th data-k="g">G</th>
@@ -4114,7 +4130,8 @@ function drawLab(){
   const agg={FG:0,FGA:0,FT:0,FTA:0,P3:0,TRB:0,AST:0,STL:0,BLK:0,TOV:0,PTS:0}; let gp=0;
   rows.forEach(({r})=>{if(!r.g)return;gp+=r.g;Object.keys(agg).forEach(k=>agg[k]+=(r.s[k]||0)*r.g);});
   const LR=SORTS.labros||{col:'rtg',desc:true};
-  const lrv=(x,c)=>c==='n'?x.n:c==='rtg'?rtg(x.n):c==='g'?x.r.g:x.r.s[c];
+  const lrv=(x,c)=>c==='n'?x.n:c==='rtg'?rtg(x.n):c==='g'?(x.r?x.r.g:null)
+    :sortStat(x.r,c);
   rows.sort((a,b)=>cmp(lrv(a,LR.col),lrv(b,LR.col),LR.desc));
   $('labRoster').innerHTML=`<table id="labRosTbl"><thead><tr><th class="l" data-k="n">Player</th>
     <th data-k="g">G</th><th data-k="PTS">PTS</th><th data-k="TRB">REB</th>
@@ -4236,7 +4253,7 @@ function drawLabPool(){
   const LS0=SORTS.labpool||{col:'rtg',desc:true};
   const lv=(p,c)=>{const v=pstat(p.n)||p;
     return c==='n'?p.n:c==='own'?ownerOf(p.n):c==='rtg'?RG[canon(p.n)]:c==='g'?v.g
-      :c==='FGP'?shotPct(v.s.FG,v.s.FGA):c==='FTP'?shotPct(v.s.FT,v.s.FTA):v.s[c];};
+      :sortStat(v,c);};
   rows.sort((a,b)=>cmp(lv(a,LS0.col),lv(b,LS0.col),LS0.desc));
   $('labPool').innerHTML=`<table class="fatab" id="labPoolTbl"><thead><tr>
     <th class="l" data-k="n">Player</th><th class="l" data-k="own">Club</th><th class="l hide">Pos</th>
@@ -5146,7 +5163,7 @@ function drawProjTab(){
   const S0=SORTS.pj||{col:'rtg',desc:true};
   const gv=(p,c)=>{const v=pstat(p.n)||p;
     return c==='n'?p.n:c==='t'?p.t:c==='rtg'?(useProj?R[canon(p.n)]:p.tot):c==='g'?v.g
-      :c==='FGP'?shotPct(v.s.FG,v.s.FGA):c==='FTP'?shotPct(v.s.FT,v.s.FTA):v.s[c];};
+      :sortStat(v,c);};
   rows.sort((a,b)=>cmp(gv(a,S0.col),gv(b,S0.col),S0.desc));
   $('pjCount').textContent=`${rows.length} players \u00b7 ${Object.keys(PROJ).length} edited \u00b7 showing ${projSrcLabel()}`;
   $('pjTable').innerHTML=`<table class="fatab" id="pjTbl"><thead><tr><th class="l" data-k="n">Player</th>
@@ -6826,13 +6843,21 @@ function drawDraft(){
     $('dfGo').onclick=()=>makePick(clock.from,$('dfP').value.trim());
     $('dfPass').onclick=()=>makePick(clock.from,'');
   }
-  /* Who is left. */
+  /* Who is left. Its two headers carried data-k and the pointer cursor that
+     goes with it, and sortable() was never called for this table — so they
+     looked live, and clicking one did nothing at all. */
+  const RK=SORTS.rk||{col:'n',desc:false};
+  const shown=pool.slice().sort((a,b)=>cmp(RK.col==='pos'?(a.p||''):a.n,
+                                           RK.col==='pos'?(b.p||''):b.n, RK.desc));
   $('rookiePool').innerHTML=`<div class="scroller" data-cap="1"><table id="rkTbl"><thead><tr>
       <th class="l" data-k="n">Rookie</th><th class="l" data-k="pos">Pos</th></tr></thead>
-    <tbody>${pool.map(r=>`<tr><td class="l">${htmlEsc(r.n)}</td>
+    <tbody>${shown.map(r=>`<tr><td class="l">${htmlEsc(r.n)}</td>
       <td class="pos l">${htmlEsc(r.p)}</td></tr>`).join('')
       ||'<tr><td colspan="2" class="l">Every rookie has been taken.</td></tr>'}</tbody></table></div>`;
   $('rkCount').textContent=`${pool.length} of ${ROOKIES.length} still available`;
+  /* Names read best A-Z, so this one defaults ascending rather than descending. */
+  sortable('rkTbl','rk','n',false);
+  redraw.rk=drawDraft;
 }
 
 /* ---- the commissioner's input: order and salary, one row per pick ---- */

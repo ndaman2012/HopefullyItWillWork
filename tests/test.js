@@ -3240,6 +3240,71 @@ const ok = (name, cond, extra='') => { ran++; if(cond) console.log('  PASS  '+na
        RAW({s:null},'PTS') === '\u2014' && RAW(null,'FG') === '\u2014');
   }
 
+  console.log('\n== a table sorts on every column, rookies included ==');
+  {
+    /* The bug, exactly as reported: on My Team the free agent list would not
+       sort on any stat except the two percentages and the rating.
+
+       The pool carries 30 undrafted rookies and a rookie has no box score, so
+       `s` is null. An unguarded `p.s[c]` inside a sort comparator does not
+       quietly return undefined — it THROWS. Array.sort() aborts, the draw
+       function never reaches its innerHTML, and the table is left holding the
+       order it already had. The four columns that appeared to work were simply
+       the four that never touched `.s`. */
+    const SS = g('sortStat'), C = g('cmp');
+    const real = {g:65, s:{FG:9.9,FGA:17.4,FT:6.1,FTA:7.4,PTS:27.7,TRB:12.9,AST:10.7,
+                           P3:1.7,STL:1.4,BLK:0.8,TOV:3.7}};
+    const rookie = {g:null, s:null};                 // what undraftedRookies() makes
+
+    ok('a real line answers with its number', SS(real,'PTS') === 27.7);
+    /* The whole fix in one assertion. */
+    ok('a rookie answers null instead of throwing', SS(rookie,'PTS') === null);
+    ok('...for every stat column', ['PTS','TRB','AST','P3','STL','BLK','TOV']
+       .every(k => SS(rookie,k) === null));
+    ok('...and for the two rates', SS(rookie,'FGP') === null && SS(rookie,'FTP') === null);
+    ok('a missing row is null too, not a crash',
+       SS(null,'PTS') === null && SS(undefined,'FGP') === null);
+    ok('the rates are still computed for a real line',
+       Math.abs(SS(real,'FGP') - 9.9/17.4) < 1e-9);
+    ok('a stat that is present but zero is zero, not null', SS({s:{PTS:0}},'PTS') === 0);
+    ok('a stat the row simply lacks is null', SS({s:{PTS:1}},'BLK') === null);
+
+    /* Sorting a mixed list must not throw, and the man with no line goes last
+       whichever way the column is pointed — which is what cmp() promises. */
+    const list = [rookie, real, {g:70, s:{PTS:31.1}}];
+    let threw = false;
+    let desc, asc;
+    try{
+      desc = list.slice().sort((a,b)=>C(SS(a,'PTS'), SS(b,'PTS'), true));
+      asc  = list.slice().sort((a,b)=>C(SS(a,'PTS'), SS(b,'PTS'), false));
+    }catch(e){ threw = true; }
+    ok('sorting a pool that contains a rookie does not throw', threw === false);
+    ok('the best line leads descending', !threw && desc[0].s.PTS === 31.1);
+    ok('the rookie sorts last descending', !threw && desc[2].s === null);
+    ok('...and last ascending too, so he never hides the top of the list',
+       !threw && asc[2].s === null);
+
+    /* And the pool the table actually reads really does contain such players,
+       or the guard is guarding nothing. faPool() is where a bare rookie record
+       is reshaped into a RATER row with g, s and tot nulled — undraftedRookies()
+       itself returns only {n,p}, so `s` there is undefined rather than null.
+       sortStat() treats both the same, which is the point of testing the pool
+       rather than the shape. */
+    const pool = g('faPool')();
+    const noLine = pool.filter(r => !r.s);
+    ok('the free agent pool carries players with no box score',
+       noLine.length > 0, `${noLine.length} of ${pool.length}`);
+    ok('...and sorting the real pool on a real column does not throw', (()=>{
+      try{ pool.slice().sort((a,b)=>C(SS(a,'PTS'), SS(b,'PTS'), true)); return true; }
+      catch(e){ return false; }
+    })());
+    ok('...leaving every one of them below every player who has a line', (()=>{
+      const sorted = pool.slice().sort((a,b)=>C(SS(a,'PTS'), SS(b,'PTS'), true));
+      const firstBlank = sorted.findIndex(r => !r.s);
+      return firstBlank === -1 || sorted.slice(firstBlank).every(r => !r.s);
+    })());
+  }
+
   console.log('\n== no stray alerts ==');
   ok('nothing alerted', ctx.__alerts.length===0, JSON.stringify(ctx.__alerts));
 

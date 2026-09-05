@@ -1001,7 +1001,7 @@ The reliable method is a Node DOM stub that actually executes the script and
 exercises the functions. It lives in `tests/`:
 
 ```
-node tests/test.js        the app: 912 assertions against the real functions
+node tests/test.js        the app: 927 assertions against the real functions
 node tests/smoke.js       renders every view in BOTH season phases, as signed-out,
                           commissioner and each GM — the live season is what opens
                           the lineup block, the IR and the lock
@@ -1294,7 +1294,19 @@ the key fell back to `proj_anon`.
 ## Conventions
 
 - Every table gets an `id` and `data-k` headers, wired via `sortable()`. Nulls
-  sort last regardless of direction.
+  sort last regardless of direction. **A `data-k` header with no `sortable()`
+  call is worse than a plain one** — CSS gives it the pointer cursor, so it
+  looks live and does nothing. The rookie pool shipped that way; `sortable()`
+  also needs a `redraw[key]` or the click changes `SORTS` and redraws nothing.
+- **A sort comparator must never index `.s` directly — use `sortStat(row,c)`.**
+  A rookie has no box score, so `s` is null, and an unguarded `p.s[c]` inside a
+  comparator does not quietly return undefined: it **throws**. `Array.sort()`
+  aborts, the draw function never reaches its `innerHTML`, and the table is left
+  holding the order it already had. That is what "the free agent list will not
+  sort" was — every column that touched `.s` was dead, while rating, games, max
+  bid and the two percentages, the four that never read it unguarded, worked
+  fine and made it look like a sorting quirk rather than an exception. All seven
+  of the app's stat accessors go through `sortStat()` now.
 - Player names in tables carry `class="pname" data-player="<name>"`. A delegated
   handler opens the shared card, so projections can be edited from anywhere a
   player appears. A whole row may carry `data-player` instead, which is what the
